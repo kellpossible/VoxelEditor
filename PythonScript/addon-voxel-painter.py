@@ -68,6 +68,8 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
 
 
 class VoxelMesh_obj_prop(bpy.types.Panel):
+	"""This class is the panel that goes with objects which represent the individual
+	voxels in the voxel array. """
     bl_label = "Voxel Properties"
     bl_idname = "OBJECT_PT_voxelmesh"
     bl_space_type = "PROPERTIES"
