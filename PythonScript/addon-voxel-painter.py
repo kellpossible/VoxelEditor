@@ -11,7 +11,9 @@ class CreateVoxelsOperator(Operator):
     bl_options = {'UNDO'}
 
     def execute(self, context):
-        pass
+        obj = context.object
+        obj.vox_empty.created = True
+        return {'FINISHED'}
 
     @classmethod
     def poll(cls, context):
@@ -47,12 +49,14 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
 
     def draw_header(self, context):
         obj = context.object
+        if not obj.vox_empty.created:
+            self.layout.operator("object.create_voxels", text="Create")
 
 
     def draw(self, context):
         layout = self.layout
-
         obj = context.object
+        layout.active = obj.vox_empty.created
 
         row = layout.row()
         row.label(text="Hello world!", icon='WORLD_DATA')
@@ -100,13 +104,15 @@ class VoxelMesh_obj_prop(bpy.types.Panel):
 
 
 def register():
-    bpy.utils.register_class(VoxelMesh_obj_prop)
-    bpy.utils.register_class(VoxelEmpty_obj_prop)
+    bpy.utils.register_module(__name__)
+    bpy.types.Object.vox_empty = PointerProperty(type=VoxelEmpty_props)
+
 
 
 def unregister():
     bpy.utils.unregister_class(VoxelMesh_obj_prop)
     bpy.utils.unregister_class(VoxelEmpty_obj_prop)
+    del bpy.types.Object.vox
 
 
 if __name__ == "__main__":
