@@ -1,0 +1,47 @@
+K 25
+svn:wc:ra_dav:version-url
+V 38
+/svn/!svn/ver/63/trunk/modules/macouno
+END
+liberty.py
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/37/trunk/modules/macouno/liberty.py
+END
+misc.py
+K 25
+svn:wc:ra_dav:version-url
+V 46
+/svn/!svn/ver/23/trunk/modules/macouno/misc.py
+END
+falloff_curve.py
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/svn/!svn/ver/3/trunk/modules/macouno/falloff_curve.py
+END
+__init__.py
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/3/trunk/modules/macouno/__init__.py
+END
+select_faces.py
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/svn/!svn/ver/56/trunk/modules/macouno/select_faces.py
+END
+mesh_extras.py
+K 25
+svn:wc:ra_dav:version-url
+V 53
+/svn/!svn/ver/63/trunk/modules/macouno/mesh_extras.py
+END
+colour.py
+K 25
+svn:wc:ra_dav:version-url
+V 48
+/svn/!svn/ver/45/trunk/modules/macouno/colour.py
+END

@@ -1,0 +1,47 @@
+K 25
+svn:wc:ra_dav:version-url
+V 29
+/svn/!svn/ver/66/trunk/addons
+END
+render_autosave.py
+K 25
+svn:wc:ra_dav:version-url
+V 48
+/svn/!svn/ver/60/trunk/addons/render_autosave.py
+END
+shipwright.py
+K 25
+svn:wc:ra_dav:version-url
+V 43
+/svn/!svn/ver/49/trunk/addons/shipwright.py
+END
+mesh_grow.py
+K 25
+svn:wc:ra_dav:version-url
+V 42
+/svn/!svn/ver/66/trunk/addons/mesh_grow.py
+END
+mesh_self_shadow.py
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/17/trunk/addons/mesh_self_shadow.py
+END
+object_entoform.py
+K 25
+svn:wc:ra_dav:version-url
+V 48
+/svn/!svn/ver/65/trunk/addons/object_entoform.py
+END
+mesh_bump.py
+K 25
+svn:wc:ra_dav:version-url
+V 42
+/svn/!svn/ver/50/trunk/addons/mesh_bump.py
+END
+object_bonsai.py
+K 25
+svn:wc:ra_dav:version-url
+V 46
+/svn/!svn/ver/66/trunk/addons/object_bonsai.py
+END
