@@ -27,9 +27,7 @@ class SelectionBackup(object):
 
 
 
-def vec_to_key(vec):
-    """key is a string in format of (int, int, int)"""
-    return "({0}, {1}, {2})".format(vec[0], vec[1], vec[2])
+
 
 class Voxel(object):
     def __init__(self, obj):
@@ -38,6 +36,12 @@ class Voxel(object):
     def copy_props(self, dic):
         """copy voxel properties to an external dictionary dic"""
 
+    @classmethod
+    def gen_get_name(cls, vec):
+        return "Voxel" +  "({0}, {1}, {2})".format(vec[0], vec[1], vec[2])
+
+    def gen_set_name(self, vec):
+        self.obj.name =  self.gen_get_name(vec)
 
 class VoxelArray(object):
     """VoxelArray is a utility class to facilitate accessing the sparse voxel
@@ -58,11 +62,11 @@ class VoxelArray(object):
         sb = SelectionBackup(self.context)
         bpy.ops.mesh.primitive_cube_add(location = pos)
         vox = Voxel(get_active(self.context))
-        print("active", get_active(self.context).name)
-        print("self.obj", self.obj.name)
-        print("vox.obj", vox.obj.name)
+        #print("active", get_active(self.context).name)
+        #print("self.obj", self.obj.name)
+        #print("vox.obj", vox.obj.name)
         vox.obj.parent = self.obj
-        vox.obj.name = vec_to_key(pos)
+        vox.gen_set_name(pos)
         sb.restore()
 
         return vox
@@ -77,13 +81,17 @@ class VoxelArray(object):
             return False
 
     def get_vox(self, pos):
-        key_str = "Voxel" + vec_to_key(pos)
+        key_str = Voxel.gen_get_name(pos)
 
         for c in self.obj.children:
             if(c.name == key_str):
                 return Voxel(c)
 
         return None
+
+    def __getitem__(self, index):
+        """overload the "for in" method"""
+        return self.obj.children.__getitem__(index)
 
 
 class CreateVoxelsOperator(Operator):
