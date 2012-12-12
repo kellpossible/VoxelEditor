@@ -2,8 +2,39 @@ import bpy
 from bpy.props import StringProperty, BoolProperty, IntProperty, FloatProperty, \
                           FloatVectorProperty, EnumProperty, PointerProperty
 from bpy.types import Operator
+from mathutils import Vector
+
+def get_active(context):
+    return context.scene.objects.active
+
+def set_active(context, obj):
+    context.scene.objects.active = obj
+
+class SelectionBackup(object):
+    def __init__(self, context):
+        self.context = context
+        self.bases = self.context.selected_bases.copy()
+        self.active = get_active(self.context)
+
+    def restore(self):
+        for b in self.context.selected_bases:
+            b.object.select = False
+            set_active(self.context, None)
+
+        for b in self.bases:
+            b.object.select = True
+            set_active(self.context, self.active)
+
+
+
+def vec_to_key(vec):
+    """key is a string in format of (int, int, int)"""
+    return "({0}, {1}, {2})".format(vec[0], vec[1], vec[2])
 
 class Voxel(object):
+    def __init__(self, obj):
+        self.obj = obj
+
     def copy_props(self, dic):
         """copy voxel properties to an external dictionary dic"""
 
@@ -16,61 +47,43 @@ class VoxelArray(object):
     va[0, 0, 0] = Voxel(...)
     during assignment Voxel object is converted to blender's python ID property
     format."""
-    def __init__(self, obj):
+    def __init__(self, obj, context):
         """obj is the object in the context of the caller/creator"""
         self.obj = obj
-        if("VoxelArray" not in obj):
-            obj["VoxelArray"] = {}
+        self.context = context
+        self.props = self.obj.vox_empty
 
-        self.prop_dic = obj["VoxelArray"]
+    def new_vox(self, pos):
+        #need to add check for replacing existing voxel
+        sb = SelectionBackup(self.context)
+        bpy.ops.mesh.primitive_cube_add(location = pos)
+        vox = Voxel(get_active(self.context))
+        print("active", get_active(self.context).name)
+        print("self.obj", self.obj.name)
+        print("vox.obj", vox.obj.name)
+        vox.obj.parent = self.obj
+        vox.obj.name = vec_to_key(pos)
+        sb.restore()
 
-    def key_to_str(self, key):
-        """key is a string in format of (int, int, int)"""
-        return "({0}, {1}, {2})".format(key[0], key[1], key[2])
+        return vox
 
-    def get_vox_dic(self, key, create=False):
-        """if create is set to True, then
-        if no error will be thrown on the event that
-        the key does not exist no prop_dic, but rather
-        we create a new voxel in the prop_dic"""
+    def del_vox(self, pos):
+        vox = self.get_vox(pos)
+        if vox is not None:
+            override = {'selected_bases':[vox.obj]}
+            bpy.ops.delete(override)
+            return True
+        else:
+            return False
 
-        key_str = self.key_to_str(key)
-        print(key_str)
+    def get_vox(self, pos):
+        key_str = "Voxel" + vec_to_key(pos)
 
-        if(key_str not in self.prop_dic and create):
-            self.prop_dic[key_str] = {}
+        for c in self.obj.children:
+            if(c.name == key_str):
+                return Voxel(c)
 
-        return self.prop_dic[key_str]
-
-    def __setitem__(self, key, vox):
-        """key is a string in format of (int, int, int)
-        value is a Voxel instance"""
-        vox_dic = self.get_vox_dic(key, create=True)
-        vox.copy_props(vox_dic)
-
-    def __getitem__(self, key):
-        """key is a string in format of (int, int, int)
-        returns an instance of Voxel, remember to delete
-        when finished"""
-        vox_dic = self.get_vox_dic(key)
-
-    def __delitem__(self, key):
-        """key is a string in format of (int, int, int)
-        returns an instance of Voxel, remember to delete
-        when finished"""
-        vox_dic = self.get_vox_dic(key)
-
-    def __contains__(self, key):
-        """key is a string in format of (int, int, int)
-        returns an instance of Voxel, remember to delete
-        when finished"""
-        vox_dic = self.get_vox_dic(key)
-
-    def get(self, key):
-        """key is a string in format of (int, int, int)
-        returns an instance of Voxel, remember to delete
-        when finished"""
-        vox_dic = self.get_vox_dic(key)
+        return None
 
 
 class CreateVoxelsOperator(Operator):
@@ -83,7 +96,9 @@ class CreateVoxelsOperator(Operator):
     def execute(self, context):
         obj = context.object
         obj.vox_empty.created = True
-        va = VoxelArray(obj)
+        va = VoxelArray(obj, context)
+        va.new_vox(Vector((1, 2, 3)))
+
         del va
 
 
