@@ -33,7 +33,6 @@ def get_active(context):
 def set_active(context, obj):
     context.scene.objects.active = obj
 
-
 class SelectionBackup(object):
     def __init__(self, context):
         self.context = context
@@ -93,6 +92,7 @@ class Voxel(object):
         hit, normal, face_index = self.obj.ray_cast(ray_origin_obj, ray_target_obj)
 
         if face_index != -1:
+            #hit relative to world
             hit_world = self.obj.matrix_world * hit
             dist_squared = (hit_world - ray_origin).length_squared
             vri = VoxelRayIntersection(self, hit, normal, dist_squared)
@@ -127,6 +127,9 @@ class Voxel(object):
         """Deselect the voxel in the blender viewport"""
         self.obj.select = False
 
+    def get_local_location(self):
+        return self.obj.location
+
 class VoxelArray(object):
     """VoxelArray is a utility class to facilitate accessing the sparse voxel
     array, and saving to blend file.
@@ -144,17 +147,39 @@ class VoxelArray(object):
     quite a bit of extra work, and doesn't integrate as nicely. Doing stuff in edit
     mode in a single object would be faster, but is more likely to result in user error
     by editing the shape of the voxel array."""
+    @classmethod
+    def get_voxelarray(cls, context):
+        va_obj_name = context.scene["VoxelArray_SelectedArray"]
+        return VoxelArray(context.scene.objects[va_obj_name], context)
+
+    @classmethod
+    def set_select_voxelarray(cls, context, voxelarray):
+        context.scene["VoxelArray_SelectedArray"] = voxelarray.obj.name
+
+
     def __init__(self, obj, context):
         """obj is the object in the context of the caller/creator"""
         self.obj = obj
         self.context = context
         self.props = self.obj.vox_empty
 
+    def global_to_local(self, pos):
+        """Convert global position to local position"""
+        matrix = self.obj.matrix_world.inverted()
+        return matrix * pos
+
+    def local_to_global(self, pos):
+        return self.obj.matrix_world * pos
+
     def new_vox(self, pos):
-        #need to add check for replacing existing voxel
+        #TODO: need to add check for replacing existing voxel
+        #pos_local = self.obj.matrix_world * pos
         sb = SelectionBackup(self.context)
-        bpy.ops.mesh.primitive_cube_add(location = pos)
+        bpy.ops.mesh.primitive_cube_add()
         vox = Voxel(get_active(self.context))
+        vox.obj.location = pos
+        #vox.obj.scale = self.obj.scale
+        #svox.obj.rotation_euler = self.obj.rotation_euler
         #print("active", get_active(self.context).name)
         #print("self.obj", self.obj.name)
         #print("vox.obj", vox.obj.name)
@@ -205,6 +230,15 @@ class VoxelArray(object):
         """overload the "for in" method"""
         return self.obj.children.__getitem__(index)
 
+    def get_name(self):
+        return self.obj.name
+
+    def __str__(self):
+        return str(self.obj)
+
+    def __len__(self):
+        return len(self.obj.children)
+
 
 class VoxelEmpty_props(bpy.types.PropertyGroup):
     """This class stores all the overall properties for the voxel array"""
@@ -247,13 +281,13 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         row.label(text="Hello world!", icon='WORLD_DATA')
 
         try:
-            selected_array = context.scene["VoxelArray_SelectedArray"]
+            selected_array = VoxelArray.get_voxelarray(context)
         except:
             selected_array = None
 
         row = layout.row()
         if selected_array is not None:
-            row.label(text="SelectedArray:" + selected_array)
+            row.label(text="SelectedArray:" + str(selected_array))
         else:
             row.label(text="SelectedArray:None")
 
@@ -261,6 +295,10 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         row.label(text="Active object is: " + obj.name)
         row = layout.row()
         row.prop(obj, "name")
+        row = layout.row()
+        if selected_array is not None:
+            nvoxels = len(selected_array)
+        row.label(text="Voxels:{0}".format(nvoxels))
 
 
 class VoxelMesh_obj_prop(bpy.types.Panel):
@@ -316,10 +354,8 @@ class CreateVoxelsOperator(Operator):
         obj.vox_empty.created = True
         va = VoxelArray(obj, context)
         va.new_vox(Vector((1, 2, 3)))
-
+        VoxelArray.set_select_voxelarray(context, va)
         del va
-
-        context.scene["VoxelArray_SelectedArray"] = obj.name
         return {'FINISHED'}
 
     @classmethod
@@ -378,16 +414,31 @@ class EditVoxelsOperator(bpy.types.Operator):
 
         voxel = best_isect.voxel
         voxel.select()
-        return voxel
+        return best_isect
+
+    def add_voxel(self, context, event):
+        isect = self.select_voxel(context, event)
+        if(isect is None):
+            return None
+
+        vox = isect.voxel
+        vox.deselect()
+        base_loc = vox.get_local_location()
+        new_loc = isect.nor * 2 + base_loc #add new voxel in direction normal
+        va = VoxelArray.get_voxelarray(context)
+        new_vox = va.new_vox(new_loc)
+        return new_vox
 
     def modal(self, context, event):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             # allow navigation
             return {'PASS_THROUGH'}
-        elif event.type == 'LEFTMOUSE':
-            self.select_voxel(context, event)
+
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
+            self.add_voxel(context, event)
             return {'RUNNING_MODAL'}
-        elif event.type in {'RIGHTMOUSE', 'ESC'}:
+
+        if event.type in {'RIGHTMOUSE', 'ESC'}:
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
