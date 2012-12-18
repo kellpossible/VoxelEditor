@@ -93,7 +93,8 @@ class Voxel(object):
         hit, normal, face_index = self.obj.ray_cast(ray_origin_obj, ray_target_obj)
 
         if face_index != -1:
-            dist_squared = (hit - ray_origin).length_squared
+            hit_world = self.obj.matrix_world * hit
+            dist_squared = (hit_world - ray_origin).length_squared
             vri = VoxelRayIntersection(self, hit, normal, dist_squared)
             return vri
         else:
