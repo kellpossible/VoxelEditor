@@ -31,7 +31,14 @@ def get_active(context):
     return context.scene.objects.active
 
 def set_active(context, obj):
+    #if(obj is None):
+        #print("active:None")
     context.scene.objects.active = obj
+
+def select_none(context, active=False):
+    bpy.ops.object.select_all(action='DESELECT')
+    if(not active):
+        set_active(context, None)
 
 class SelectionBackup(object):
     def __init__(self, context):
@@ -40,13 +47,15 @@ class SelectionBackup(object):
         self.active = get_active(self.context)
 
     def restore(self):
-        for b in self.context.selected_bases:
-            b.object.select = False
-            set_active(self.context, None)
-
+        select_none(self.context)
         for b in self.bases:
-            b.object.select = True
-            set_active(self.context, self.active)
+            try:
+                b.select = True
+            except:
+                pass
+        #print("restoring active")
+        set_active(self.context, self.active)
+        #print("done restoring active")
 
 
 
@@ -67,8 +76,9 @@ class VoxelRayIntersection(object):
 
 
 class Voxel(object):
-    def __init__(self, obj):
+    def __init__(self, obj, context):
         self.obj = obj
+        self.context = context
 
     def copy_props(self, dic):
         """copy voxel properties to an external dictionary dic"""
@@ -121,11 +131,21 @@ class Voxel(object):
 
         self.obj.select = True
         if active:
-            set_active(bpy.context, self.obj)
+            set_active(self.context, self.obj)
 
-    def deselect(self):
+    def deselect(self, active=False):
         """Deselect the voxel in the blender viewport"""
         self.obj.select = False
+        if(get_active(self.context) == self.obj):
+            set_active(self.context, None)
+
+    def delete(self):
+        sb = SelectionBackup(self.context)
+        select_none(self.context)
+        self.select()
+        bpy.ops.object.delete()
+        sb.restore()
+
 
     def get_local_location(self):
         return self.obj.location
@@ -176,7 +196,7 @@ class VoxelArray(object):
         #pos_local = self.obj.matrix_world * pos
         sb = SelectionBackup(self.context)
         bpy.ops.mesh.primitive_cube_add()
-        vox = Voxel(get_active(self.context))
+        vox = Voxel(get_active(self.context), self.context)
         vox.obj.location = pos
         #vox.obj.scale = self.obj.scale
         #svox.obj.rotation_euler = self.obj.rotation_euler
@@ -186,10 +206,11 @@ class VoxelArray(object):
         vox.obj.parent = self.obj
         vox.gen_set_name(pos)
         sb.restore()
-
+        del sb
         return vox
 
-    def del_vox(self, pos):
+    def del_vox_pos(self, pos):
+        #TODO: delete or rethink this function and if it's needed
         vox = self.get_vox(pos)
         if vox is not None:
             override = {'selected_bases':[vox.obj]}
@@ -200,15 +221,15 @@ class VoxelArray(object):
 
     def voxels(self):
         for c in self.obj.children:
-            yield Voxel(c)
+            yield Voxel(c, self.context)
 
 
-    def get_vox(self, pos):
+    def get_vox_pos(self, pos):
         key_str = Voxel.gen_get_name(pos)
 
         for c in self.obj.children:
             if(c.name == key_str):
-                return Voxel(c)
+                return Voxel(c, self.context)
 
         return None
 
@@ -353,7 +374,7 @@ class CreateVoxelsOperator(Operator):
         obj = context.object
         obj.vox_empty.created = True
         va = VoxelArray(obj, context)
-        va.new_vox(Vector((1, 2, 3)))
+        va.new_vox(Vector((0, 0, 2)))
         VoxelArray.set_select_voxelarray(context, va)
         del va
         return {'FINISHED'}
@@ -374,7 +395,7 @@ class EditVoxelsOperator(bpy.types.Operator):
     bl_idname = "view3d.edit_voxels"
     bl_label = "Voxel Editor"
 
-    def select_voxel(self, context, event, ray_max=10000.0):
+    def pick_voxel(self, context, event, ray_max=10000.0):
         """Run this function on left mouse, execute the ray cast
         TODO: report/go through some problems with selecting in the
         operator_modal_view3d_raycast.py. Most of the problem is
@@ -402,7 +423,7 @@ class EditVoxelsOperator(bpy.types.Operator):
         if isects is None:
             return None
 
-        print("ISECTS:")
+        #print("I SECTS:")
 
         for isect in isects:
             #print(isect.voxel.obj.name)
@@ -412,22 +433,39 @@ class EditVoxelsOperator(bpy.types.Operator):
                 best_dist_squared = dist_squared
                 best_isect = isect
 
-        voxel = best_isect.voxel
-        voxel.select()
         return best_isect
 
+    def select_voxel(self, context, event):
+        isect = self.pick_voxel(context, event)
+        if(isect is None):
+            return None
+        vox = isect.voxel
+        vox.select()
+        return vox
+
     def add_voxel(self, context, event):
-        isect = self.select_voxel(context, event)
+        isect = self.pick_voxel(context, event)
         if(isect is None):
             return None
 
         vox = isect.voxel
-        vox.deselect()
         base_loc = vox.get_local_location()
         new_loc = isect.nor * 2 + base_loc #add new voxel in direction normal
         va = VoxelArray.get_voxelarray(context)
         new_vox = va.new_vox(new_loc)
+        #TODO: add a toggle for the select after placement
+        new_vox.select()
         return new_vox
+
+    def delete_voxel(self, context, event):
+        isect = self.pick_voxel(context, event)
+        #select_none(context)
+        if(isect is not None):
+            vox = isect.voxel
+            vox.delete()
+            return True
+        else:
+            return False
 
     def modal(self, context, event):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
@@ -438,7 +476,15 @@ class EditVoxelsOperator(bpy.types.Operator):
             self.add_voxel(context, event)
             return {'RUNNING_MODAL'}
 
-        if event.type in {'RIGHTMOUSE', 'ESC'}:
+        if event.type == 'RIGHTMOUSE' and event.value == 'RELEASE':
+            #TODO: check return value, and cancel operator if
+            #nothing was deleted
+            retval = self.delete_voxel(context, event)
+            if(retval == False):
+                #TODO: add an option for this
+                return {'CANCELLED'}
+
+        if event.type in {'ESC'}:
             return {'CANCELLED'}
 
         return {'RUNNING_MODAL'}
