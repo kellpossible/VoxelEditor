@@ -178,15 +178,31 @@ class VoxelArray(object):
     mode in a single object would be faster, but is more likely to result in user error
     by editing the shape of the voxel array."""
 
-    selection_id = "VoxelArray_SelectedArray"
+    #Operator Poll Functions
     @classmethod
-    def get_voxelarray(cls, context):
-        va_obj_name = context.scene[cls.selection_id]
-        return VoxelArray(context.scene.objects[va_obj_name], context)
+    def poll_voxelarray_empty(cls, obj):
+        return obj is not None and obj.type == 'EMPTY'
+
+    #yield functions
+    @classmethod
+    def voxelarrays_scene(cls, context):
+        for obj in context.scene.objects:
+            if cls.poll_voxelarray_empty(obj):
+                yield VoxelArray(obj, context)
+
+    #class property accessors
+    @classmethod
+    def get_selected(cls, context):
+        for va in cls.voxelarrays_scene(context):
+            if va.is_selected():
+                return va
+
+        return None
 
     @classmethod
-    def set_select_voxelarray(cls, context, voxelarray):
-        context.scene[cls.selection_id] = voxelarray.obj.name
+    def clear_selected(cls, context):
+        for va in cls.voxelarrays_scene(context):
+            va.deselect()
 
 
     def __init__(self, obj, context):
@@ -195,11 +211,15 @@ class VoxelArray(object):
         self.context = context
         self.props = self.obj.vox_empty
 
-    def is_selected_voxelarray(self, context):
-        if(context.scene[self.selection_id] == self.obj.name):
-            return True
-        else:
-            return False
+    def is_selected(self):
+        return self.obj.vox_empty.selected
+
+    def select(self):
+        self.clear_selected(self.context)
+        self.obj.vox_empty.selected = True
+
+    def deselect(self):
+        self.obj.vox_empty.selected = False
 
     def global_to_local(self, pos):
         """Convert global position to local position"""
@@ -286,8 +306,13 @@ class VoxelEmpty_props(bpy.types.PropertyGroup):
                                     description="Object to conduct intersection with voxels")
 
     created = BoolProperty(
-        name="Voxels Created",
+        name="VoxelArray Created",
         description="Voxel array has been created",
+        default=False)
+
+    selected = BoolProperty(
+        name="VoxelArray Selected",
+        description="Voxel array has been selected for editing",
         default=False)
 
 
@@ -323,17 +348,13 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         va = VoxelArray(obj, context)
         layout.active = obj.vox_empty.created
 
-        if(not va.is_selected_voxelarray(context)):
+        if(not va.is_selected()):
             layout.operator("object.set_active_voxelarray", text="Set Active")
 
-        try:
-            selected_array = VoxelArray.get_voxelarray(context)
-        except:
-            selected_array = None
-
         row = layout.row()
-        if selected_array is not None:
-            row.label(text="SelectedArray:" + str(selected_array))
+        va_selected = va.is_selected()
+        if va_selected:
+            row.label(text="SelectedArray:" + str(va))
         else:
             row.label(text="SelectedArray:None")
 
@@ -341,14 +362,17 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         row.label(text="Active object is: " + obj.name)
         row = layout.row()
         row.prop(obj, "name")
-        row = layout.row()
-        if selected_array is not None:
-            nvoxels = len(selected_array)
-        row.label(text="Voxels:{0}".format(nvoxels))
+
+        if va_selected:
+            row = layout.row()
+            nvoxels = len(va)
+            row.label(text="Voxels:{0}".format(nvoxels))
 
         row = layout.row()
-        print(obj.vox_empty.intersect_obj)
-        row.prop(data=obj.vox_empty, property="intersect_obj")
+        #print(obj.vox_empty.intersect_obj)
+        #row.prop(data=obj.vox_empty, property="intersect_obj")
+        row.label(text="Intersect With Object:")
+        row = layout.row()
         row.prop_search(context.object.vox_empty, "intersect_obj",
                         context.scene, "objects", icon = 'OBJECT_DATA', text = "")
         #row.prop_search(data=obj.vox_empty,
@@ -395,14 +419,6 @@ class VoxelMesh_obj_prop(bpy.types.Panel):
         row.prop(obj, "name")
 
 
-
-
-
-#Operator Poll Functions
-def poll_voxelarray_empty(context):
-    ob = context.active_object
-    return ob is not None and ob.type == 'EMPTY'
-
 class SetActiveVoxelArray(Operator):
     bl_idname = "object.set_active_voxelarray"
     bl_label = "Set the active VoxelArray"
@@ -411,12 +427,12 @@ class SetActiveVoxelArray(Operator):
     def execute(self, context):
         obj = context.object
         va = VoxelArray(obj, context)
-        va.set_select_voxelarray(context, va)
+        va.select()
         return {'FINISHED'}
 
     @classmethod
     def poll(cls, context):
-        return poll_voxelarray_empty(context)
+        return VoxelArray.poll_voxelarray_empty(context.active_object)
 
 class IntersectMeshVoxelsOperator(Operator):
     """Operator to intersect between mesh object and the voxel array"""
@@ -448,13 +464,13 @@ class CreateVoxelsOperator(Operator):
         obj.vox_empty.created = True
         va = VoxelArray(obj, context)
         va.new_vox(Vector((0, 0, 2)))
-        VoxelArray.set_select_voxelarray(context, va)
+        va.select()
         del va
         return {'FINISHED'}
 
     @classmethod
     def poll(cls, context):
-        return poll_voxelarray_empty(context)
+        return VoxelArray.poll_voxelarray_empty(context.active_object)
 
 
 class EditVoxelsOperator(bpy.types.Operator):
@@ -467,13 +483,14 @@ class EditVoxelsOperator(bpy.types.Operator):
     bl_idname = "view3d.edit_voxels"
     bl_label = "Voxel Editor"
 
-    def pick_voxel(self, context, event, ray_max=10000.0):
+    def pick_voxel(self, context, event, voxelarray):
         """Run this function on left mouse, execute the ray cast
         TODO: report/go through some problems with selecting in the
         operator_modal_view3d_raycast.py. Most of the problem is
         when trying to click close to the edge of the object.
         The distance values are often mucked up"""
         # get the context arguments
+        ray_max=10000.0
         region = context.region
         rv3d = context.region_data
         coord = event.mouse_region_x, event.mouse_region_y
@@ -482,12 +499,10 @@ class EditVoxelsOperator(bpy.types.Operator):
         view_vector = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
         ray_target = ray_origin + (view_vector * ray_max)
-        va_obj_name = context.scene["VoxelArray_SelectedArray"]
-        va_obj = context.scene.objects[va_obj_name]
         #TODO: raise some kind of error, or do a check/poll on this operator
         #to ensure that there has been a voxel array created and selected
-        va = VoxelArray(va_obj, context)
-        isects = va.intersect_ray(ray_origin, ray_target)
+
+        isects = voxelarray.intersect_ray(ray_origin, ray_target)
 
         best_dist_squared = ray_max * ray_max
         best_isect = None
@@ -509,7 +524,8 @@ class EditVoxelsOperator(bpy.types.Operator):
 
     def select_voxel(self, context, event):
         sb = SelectionBackup(context)
-        isect = self.pick_voxel(context, event)
+        va = VoxelArray.get_selected(context)
+        isect = self.pick_voxel(context, event, va)
         if(isect is None):
             sb.restore()
             return None
@@ -520,7 +536,8 @@ class EditVoxelsOperator(bpy.types.Operator):
 
     def add_voxel(self, context, event):
         sb = SelectionBackup(context)
-        isect = self.pick_voxel(context, event)
+        va = VoxelArray.get_selected(context)
+        isect = self.pick_voxel(context, event, va)
         if(isect is None):
             sb.restore()
             return None
@@ -528,7 +545,8 @@ class EditVoxelsOperator(bpy.types.Operator):
         vox = isect.voxel
         base_loc = vox.get_local_location()
         new_loc = isect.nor * 2 + base_loc #add new voxel in direction normal
-        va = VoxelArray.get_voxelarray(context)
+
+        print(str(va))
         new_vox = va.new_vox(new_loc)
         sb.restore()
         #TODO: add a toggle for the select after placement
@@ -537,7 +555,8 @@ class EditVoxelsOperator(bpy.types.Operator):
 
     def delete_voxel(self, context, event):
         sb = SelectionBackup(context)
-        isect = self.pick_voxel(context, event)
+        va = VoxelArray.get_selected(context)
+        isect = self.pick_voxel(context, event, va)
         #select_none(context)
         if(isect is not None):
             vox = isect.voxel
