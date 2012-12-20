@@ -85,9 +85,11 @@ class Voxel(object):
 
     @classmethod
     def gen_get_name(cls, vec):
+        """Get the string for the object name using position vector"""
         return "Voxel" +  "({0}, {1}, {2})".format(vec[0], vec[1], vec[2])
 
     def gen_set_name(self, vec):
+        """Set voxel object name"""
         self.obj.name =  self.gen_get_name(vec)
 
     def ray_cast(self, ray_origin, ray_target):
@@ -140,11 +142,19 @@ class Voxel(object):
             set_active(self.context, None)
 
     def delete(self):
-        sb = SelectionBackup(self.context)
         select_none(self.context)
         self.select()
         bpy.ops.object.delete()
-        sb.restore()
+
+    def boolean_mesh(self, obj):
+        """run a boolean intersect operation between a mesh object and the voxel
+        and the resultant mesh is parented to the voxel"""
+        select_none(self.context)
+        self.select()
+        bpy.ops.object.modifier_add(type='BOOLEAN')
+        bool_mod = self.obj.modifiers["Boolean"]
+        bool_mod.object = obj
+        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
 
 
     def get_local_location(self):
@@ -167,14 +177,16 @@ class VoxelArray(object):
     quite a bit of extra work, and doesn't integrate as nicely. Doing stuff in edit
     mode in a single object would be faster, but is more likely to result in user error
     by editing the shape of the voxel array."""
+
+    selection_id = "VoxelArray_SelectedArray"
     @classmethod
     def get_voxelarray(cls, context):
-        va_obj_name = context.scene["VoxelArray_SelectedArray"]
+        va_obj_name = context.scene[cls.selection_id]
         return VoxelArray(context.scene.objects[va_obj_name], context)
 
     @classmethod
     def set_select_voxelarray(cls, context, voxelarray):
-        context.scene["VoxelArray_SelectedArray"] = voxelarray.obj.name
+        context.scene[cls.selection_id] = voxelarray.obj.name
 
 
     def __init__(self, obj, context):
@@ -182,6 +194,12 @@ class VoxelArray(object):
         self.obj = obj
         self.context = context
         self.props = self.obj.vox_empty
+
+    def is_selected_voxelarray(self, context):
+        if(context.scene[self.selection_id] == self.obj.name):
+            return True
+        else:
+            return False
 
     def global_to_local(self, pos):
         """Convert global position to local position"""
@@ -194,7 +212,6 @@ class VoxelArray(object):
     def new_vox(self, pos):
         #TODO: need to add check for replacing existing voxel
         #pos_local = self.obj.matrix_world * pos
-        sb = SelectionBackup(self.context)
         bpy.ops.mesh.primitive_cube_add()
         vox = Voxel(get_active(self.context), self.context)
         vox.obj.location = pos
@@ -205,8 +222,6 @@ class VoxelArray(object):
         #print("vox.obj", vox.obj.name)
         vox.obj.parent = self.obj
         vox.gen_set_name(pos)
-        sb.restore()
-        del sb
         return vox
 
     def del_vox_pos(self, pos):
@@ -247,6 +262,10 @@ class VoxelArray(object):
         else:
             return isects
 
+    def boolean_mesh(self, obj):
+        for voxel in self.voxels():
+            voxel.boolean_mesh(obj)
+
     def __getitem__(self, index):
         """overload the "for in" method"""
         return self.obj.children.__getitem__(index)
@@ -263,10 +282,15 @@ class VoxelArray(object):
 
 class VoxelEmpty_props(bpy.types.PropertyGroup):
     """This class stores all the overall properties for the voxel array"""
+    intersect_obj = StringProperty(name="Intersect Obj",
+                                    description="Object to conduct intersection with voxels")
+
     created = BoolProperty(
         name="Voxels Created",
         description="Voxel array has been created",
         default=False)
+
+
 
 
 class VoxelEmpty_obj_prop(bpy.types.Panel):
@@ -296,10 +320,11 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         obj = context.object
+        va = VoxelArray(obj, context)
         layout.active = obj.vox_empty.created
 
-        row = layout.row()
-        row.label(text="Hello world!", icon='WORLD_DATA')
+        if(not va.is_selected_voxelarray(context)):
+            layout.operator("object.set_active_voxelarray", text="Set Active")
 
         try:
             selected_array = VoxelArray.get_voxelarray(context)
@@ -320,6 +345,16 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         if selected_array is not None:
             nvoxels = len(selected_array)
         row.label(text="Voxels:{0}".format(nvoxels))
+
+        row = layout.row()
+        print(obj.vox_empty.intersect_obj)
+        row.prop(data=obj.vox_empty, property="intersect_obj")
+        row.prop_search(context.object.vox_empty, "intersect_obj",
+                        context.scene, "objects", icon = 'OBJECT_DATA', text = "")
+        #row.prop_search(data=obj.vox_empty,
+                        #property="intersect_obj",
+                        #search_data=context.scene.objects,
+                        #search_property="name")
 
 
 class VoxelMesh_obj_prop(bpy.types.Panel):
@@ -363,6 +398,44 @@ class VoxelMesh_obj_prop(bpy.types.Panel):
 
 
 
+#Operator Poll Functions
+def poll_voxelarray_empty(context):
+    ob = context.active_object
+    return ob is not None and ob.type == 'EMPTY'
+
+class SetActiveVoxelArray(Operator):
+    bl_idname = "object.set_active_voxelarray"
+    bl_label = "Set the active VoxelArray"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        obj = context.object
+        va = VoxelArray(obj, context)
+        va.set_select_voxelarray(context, va)
+        return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        return poll_voxelarray_empty(context)
+
+class IntersectMeshVoxelsOperator(Operator):
+    """Operator to intersect between mesh object and the voxel array"""
+
+    bl_idname = "object.intersect_mesh_voxels"
+    bl_label = "Intersect Voxels Mesh"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        obj = context.object
+        va = VoxelArray(obj, context)
+
+
+        return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        return poll_voxelarray_empty(context)
+
 class CreateVoxelsOperator(Operator):
     """Operator to create and enable voxels on an empty"""
 
@@ -381,8 +454,7 @@ class CreateVoxelsOperator(Operator):
 
     @classmethod
     def poll(cls, context):
-        ob = context.active_object
-        return ob is not None and ob.type == 'EMPTY'
+        return poll_voxelarray_empty(context)
 
 
 class EditVoxelsOperator(bpy.types.Operator):
@@ -427,7 +499,7 @@ class EditVoxelsOperator(bpy.types.Operator):
 
         for isect in isects:
             #print(isect.voxel.obj.name)
-            print(str(isect))
+            #print(str(isect))
             dist_squared = isect.dist_squared
             if(dist_squared < best_dist_squared):
                 best_dist_squared = dist_squared
@@ -436,16 +508,21 @@ class EditVoxelsOperator(bpy.types.Operator):
         return best_isect
 
     def select_voxel(self, context, event):
+        sb = SelectionBackup(context)
         isect = self.pick_voxel(context, event)
         if(isect is None):
+            sb.restore()
             return None
         vox = isect.voxel
+        sb.restore()
         vox.select()
         return vox
 
     def add_voxel(self, context, event):
+        sb = SelectionBackup(context)
         isect = self.pick_voxel(context, event)
         if(isect is None):
+            sb.restore()
             return None
 
         vox = isect.voxel
@@ -453,18 +530,22 @@ class EditVoxelsOperator(bpy.types.Operator):
         new_loc = isect.nor * 2 + base_loc #add new voxel in direction normal
         va = VoxelArray.get_voxelarray(context)
         new_vox = va.new_vox(new_loc)
+        sb.restore()
         #TODO: add a toggle for the select after placement
         new_vox.select()
         return new_vox
 
     def delete_voxel(self, context, event):
+        sb = SelectionBackup(context)
         isect = self.pick_voxel(context, event)
         #select_none(context)
         if(isect is not None):
             vox = isect.voxel
             vox.delete()
+            sb.restore()
             return True
         else:
+            sb.restore()
             return False
 
     def modal(self, context, event):
@@ -506,7 +587,7 @@ def register():
 
 def unregister():
     bpy.utils.unregister_module(__name__)
-    del bpy.types.Object.vox
+    del bpy.types.Object.vox_empty
 
 if __name__ == "__main__":
     register()
