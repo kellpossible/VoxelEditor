@@ -49,10 +49,12 @@ class SelectionBackup(object):
     def restore(self):
         select_none(self.context)
         for b in self.bases:
-            try:
-                b.select = True
-            except:
-                pass
+            #check that the object still exists
+            if(b in self.context.selectable_bases):
+                try:
+                    b.select = True
+                except:
+                    pass
         #print("restoring active")
         set_active(self.context, self.active)
         #print("done restoring active")
@@ -76,6 +78,18 @@ class VoxelRayIntersection(object):
 
 
 class Voxel(object):
+    #Operator Poll Functions
+    @classmethod
+    def poll_voxel_mesh(cls, obj):
+        if(obj.type != 'MESH'):
+            return False
+
+        if(obj.parent is not None):
+            if(VoxelArray.poll_voxelarray_empty_created(obj.parent)):
+                return True
+
+        return False
+
     def __init__(self, obj, context):
         self.obj = obj
         self.context = context
@@ -146,7 +160,7 @@ class Voxel(object):
         self.select()
         bpy.ops.object.delete()
 
-    def boolean_mesh(self, obj):
+    def intersect_mesh(self, obj):
         """run a boolean intersect operation between a mesh object and the voxel
         and the resultant mesh is parented to the voxel"""
         select_none(self.context)
@@ -183,6 +197,24 @@ class VoxelArray(object):
     def poll_voxelarray_empty(cls, obj):
         return obj is not None and obj.type == 'EMPTY'
 
+    @classmethod
+    def poll_voxelarray_empty_created(cls, obj):
+        if(cls.poll_voxelarray_empty(obj)):
+            if(obj.vox_empty.created):
+                return True
+
+        return False
+
+    @classmethod
+    def poll_can_boolean(cls, obj):
+        """Method to check whether object is valid for a boolean intersection
+        between itself and a voxel array"""
+        if(obj.type != 'MESH'):
+            return False
+        if(Voxel.poll_voxel_mesh(obj)):
+            return False
+        return True
+
     #yield functions
     @classmethod
     def voxelarrays_scene(cls, context):
@@ -213,6 +245,9 @@ class VoxelArray(object):
 
     def is_selected(self):
         return self.obj.vox_empty.selected
+
+    def is_created(self):
+        return self.obj.vox_empty.created
 
     def select(self):
         self.clear_selected(self.context)
@@ -282,9 +317,17 @@ class VoxelArray(object):
         else:
             return isects
 
-    def boolean_mesh(self, obj):
+    def get_intersect_obj(self):
+        isect_obj_name = self.obj.vox_empty.intersect_obj
+        if(isect_obj_name == ""):
+            return None
+
+        isect_obj = self.context.scene.objects[isect_obj_name]
+        return isect_obj
+
+    def intersect_mesh(self, obj):
         for voxel in self.voxels():
-            voxel.boolean_mesh(obj)
+            voxel.intersect_mesh(obj)
 
     def __getitem__(self, index):
         """overload the "for in" method"""
@@ -330,11 +373,7 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        if(context.object is not None):
-            if(context.object.type == 'EMPTY'):
-                return True
-
-        return False
+        return VoxelArray.poll_voxelarray_empty(context.object)
 
     def draw_header(self, context):
         obj = context.object
@@ -346,32 +385,42 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         layout = self.layout
         obj = context.object
         va = VoxelArray(obj, context)
-        layout.active = obj.vox_empty.created
+        layout.active = va.is_created()
 
         if(not va.is_selected()):
             layout.operator("object.set_active_voxelarray", text="Set Active")
-
-        row = layout.row()
-        va_selected = va.is_selected()
-        if va_selected:
-            row.label(text="SelectedArray:" + str(va))
-        else:
-            row.label(text="SelectedArray:None")
 
         row = layout.row()
         row.label(text="Active object is: " + obj.name)
         row = layout.row()
         row.prop(obj, "name")
 
-        if va_selected:
+        if va.is_created():
             row = layout.row()
             nvoxels = len(va)
             row.label(text="Voxels:{0}".format(nvoxels))
 
+
+        # -- VoxelArray -> Mesh intersection ---
+        #set to only display intersect value when the selected
+        #object is valid for intersectiong
+        #TODO: change this to use a custom property collection for searching
+        #and selection of the object.
         row = layout.row()
+        isect_label_text = "Intersect With Object:"
         #print(obj.vox_empty.intersect_obj)
         #row.prop(data=obj.vox_empty, property="intersect_obj")
-        row.label(text="Intersect With Object:")
+        isect_obj = va.get_intersect_obj()
+        if(isect_obj is not None):
+            valid_isect_obj = VoxelArray.poll_can_boolean(isect_obj)
+        else:
+            valid_isect_obj = False
+
+        if(valid_isect_obj):
+            row.operator("object.intersect_mesh_voxels", text=isect_label_text)
+        else:
+            row.label(text=isect_label_text)
+
         row = layout.row()
         row.prop_search(context.object.vox_empty, "intersect_obj",
                         context.scene, "objects", icon = 'OBJECT_DATA', text = "")
@@ -395,15 +444,7 @@ class VoxelMesh_obj_prop(bpy.types.Panel):
     def poll(cls, context):
         #TODO check that parent EMPTY has voxel array initialised
         obj = context.object
-        if(obj is not None):
-            if(obj.type == 'MESH'):
-                if(obj.parent is not None):
-                    pobj = obj.parent
-                    if(obj.parent_type == 'OBJECT'):
-                        if(pobj.type == 'EMPTY'):
-                            return True
-
-        return False
+        return Voxel.poll_voxel_mesh(obj)
 
     def draw(self, context):
         layout = self.layout
@@ -436,21 +477,19 @@ class SetActiveVoxelArray(Operator):
 
 class IntersectMeshVoxelsOperator(Operator):
     """Operator to intersect between mesh object and the voxel array"""
-
     bl_idname = "object.intersect_mesh_voxels"
     bl_label = "Intersect Voxels Mesh"
     bl_options = {'UNDO'}
 
     def execute(self, context):
         obj = context.object
-        va = VoxelArray(obj, context)
-
-
+        #va = VoxelArray(obj, context)
+        print("Intersecting!!!")
         return {'FINISHED'}
 
     @classmethod
     def poll(cls, context):
-        return poll_voxelarray_empty(context)
+        return VoxelArray.poll_voxelarray_empty_created(context.object)
 
 class CreateVoxelsOperator(Operator):
     """Operator to create and enable voxels on an empty"""
@@ -460,12 +499,15 @@ class CreateVoxelsOperator(Operator):
     bl_options = {'UNDO'}
 
     def execute(self, context):
+        #sb = SelectionBackup(context)
         obj = context.object
         obj.vox_empty.created = True
         va = VoxelArray(obj, context)
         va.new_vox(Vector((0, 0, 2)))
         va.select()
         del va
+        #sb.restore()
+        #del sb
         return {'FINISHED'}
 
     @classmethod
@@ -510,11 +552,7 @@ class EditVoxelsOperator(bpy.types.Operator):
         if isects is None:
             return None
 
-        #print("I SECTS:")
-
         for isect in isects:
-            #print(isect.voxel.obj.name)
-            #print(str(isect))
             dist_squared = isect.dist_squared
             if(dist_squared < best_dist_squared):
                 best_dist_squared = dist_squared
@@ -546,7 +584,6 @@ class EditVoxelsOperator(bpy.types.Operator):
         base_loc = vox.get_local_location()
         new_loc = isect.nor * 2 + base_loc #add new voxel in direction normal
 
-        print(str(va))
         new_vox = va.new_vox(new_loc)
         sb.restore()
         #TODO: add a toggle for the select after placement

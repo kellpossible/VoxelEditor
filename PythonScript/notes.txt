@@ -1,0 +1,27 @@
+For the list of objects to intersect with the voxel array here are a few ideas on how
+to filter the results:
+
+use this solution by scorpion81
+"<scorpion81> well maybe you can replace "context.scene", "objects" by a custom collection property you can fill with your "
+https://github.com/scorpion81/Blender-Destructability-Editor/blob/master/object_destruction/destruction_proc.py#L2637
+
+grounds = props.CollectionProperty(type = types.PropertyGroup, name = "grounds")
+
+add a callback to this collectionproperty so that each time it is accessed, we run the filter check
+and rebuild the collection and populate it with valid objects for intersection.
+
+
+
+Bug report
+
+self.bases = self.context.selected_bases.copy()
+
+then go and delete an object
+
+for b in self.bases:
+  #check that the object still exists
+  if(b in self.context.selectable_bases):
+  	b.select = True
+
+if I remove the check that b is still in the current selectable bases,
+then this segfaults
