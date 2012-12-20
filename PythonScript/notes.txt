@@ -25,3 +25,10 @@ for b in self.bases:
 
 if I remove the check that b is still in the current selectable bases,
 then this segfaults
+
+
+Bug report/Feature Request
+
+it's not possible to add a modifier to an object other than the bpy.context.object
+and there seems like there is no way to change this to be bpy.context.active_object
+the selected and active object.

@@ -163,13 +163,30 @@ class Voxel(object):
     def intersect_mesh(self, obj):
         """run a boolean intersect operation between a mesh object and the voxel
         and the resultant mesh is parented to the voxel"""
-        select_none(self.context)
+        select_none(bpy.context)
         self.select()
-        bpy.ops.object.modifier_add(type='BOOLEAN')
-        bool_mod = self.obj.modifiers["Boolean"]
-        bool_mod.object = obj
-        bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-
+        print("Active:", self.context.active_object)
+        print("Object:", self.context.object)
+        bpy.ops.object.duplicate() #duplicate selected object
+        #duplicated object is now selected and active
+        print("Active:", self.context.active_object)
+        print("Object:", self.context.object)
+        isect_obj = bpy.context.active_object
+        isect_obj.name = self.obj.name + "_isect"
+        isect_obj.parent = self.obj
+        isect_obj.location = Vector((0.0, 0.0, 0.0))
+        #bpy.ops.object.modifier_add(type='BOOLEAN')
+        #select_none(bpy.context)
+        isect_obj.select = True
+        set_active(bpy.context, isect_obj)
+        print(isect_obj.type)
+        print(isect_obj.name)
+        bpy.ops.object.modifier_add()
+        #ssurf_mod = isect_obj.modifiers[0]
+        #bool_mod = self.obj.modifiers["Boolean"]
+        #bool_mod.object = obj
+        #bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+        #bpy.ops.object.modifier_apply(modifier=ssurf_mod.name)
 
     def get_local_location(self):
         return self.obj.location
@@ -483,8 +500,10 @@ class IntersectMeshVoxelsOperator(Operator):
 
     def execute(self, context):
         obj = context.object
-        #va = VoxelArray(obj, context)
-        print("Intersecting!!!")
+        va = VoxelArray(obj, context)
+        isect_obj = va.get_intersect_obj()
+        print("Intersecting:" + isect_obj.name)
+        va.intersect_mesh(isect_obj)
         return {'FINISHED'}
 
     @classmethod
