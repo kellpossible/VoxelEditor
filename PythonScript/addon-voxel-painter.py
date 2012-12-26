@@ -27,6 +27,22 @@ from mathutils import Vector
 from bpy_extras import view3d_utils
 
 #Miscelaneous Functions and classes
+def operator_contextswitch(context, obj, operator, **argsdic):
+    ctx = context.copy()
+    ctx["active_object"] = obj
+    ctx["selected_bases"] = [obj]
+    #ctx["edit_object"] = None
+    ctx["object"] = obj
+    operator(ctx, **argsdic)
+    del ctx
+
+def selection_context(obj):
+    override = {'selected_bases':[obj],
+                'object':obj,
+                'active_object':obj}
+
+    return override
+
 def get_active(context):
     return context.scene.objects.active
 
@@ -167,26 +183,30 @@ class Voxel(object):
         self.select()
         print("Active:", self.context.active_object)
         print("Object:", self.context.object)
+
         bpy.ops.object.duplicate() #duplicate selected object
         #duplicated object is now selected and active
         print("Active:", self.context.active_object)
         print("Object:", self.context.object)
+
         isect_obj = bpy.context.active_object
+        bpy.context.scene.objects.active = isect_obj
         isect_obj.name = self.obj.name + "_isect"
         isect_obj.parent = self.obj
         isect_obj.location = Vector((0.0, 0.0, 0.0))
         #bpy.ops.object.modifier_add(type='BOOLEAN')
         #select_none(bpy.context)
         isect_obj.select = True
-        set_active(bpy.context, isect_obj)
+        set_active(self.context, isect_obj)
+
+        override = selection_context(isect_obj)
+        bpy.ops.object.modifier_add(override, type='BOOLEAN')
+
         print(isect_obj.type)
         print(isect_obj.name)
-        bpy.ops.object.modifier_add()
-        #ssurf_mod = isect_obj.modifiers[0]
-        #bool_mod = self.obj.modifiers["Boolean"]
-        #bool_mod.object = obj
-        #bpy.ops.object.modifier_apply(modifier=bool_mod.name)
-        #bpy.ops.object.modifier_apply(modifier=ssurf_mod.name)
+        bool_mod = isect_obj.modifiers[0]
+        bool_mod.object = obj
+        bpy.ops.object.modifier_apply(override, modifier=bool_mod.name)
 
     def get_local_location(self):
         return self.obj.location
@@ -499,11 +519,13 @@ class IntersectMeshVoxelsOperator(Operator):
     bl_options = {'UNDO'}
 
     def execute(self, context):
+        sb = SelectionBackup(context)
         obj = context.object
         va = VoxelArray(obj, context)
         isect_obj = va.get_intersect_obj()
         print("Intersecting:" + isect_obj.name)
         va.intersect_mesh(isect_obj)
+        sb.restore()
         return {'FINISHED'}
 
     @classmethod
