@@ -2,6 +2,7 @@ VoxelEditor
 ===========
 
 This project is a voxel editing python script/addon for blender.
+VoxelEditor is licensed under the MIT license
 
 Using
 ---------
