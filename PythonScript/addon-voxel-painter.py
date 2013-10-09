@@ -310,11 +310,17 @@ class VoxelArray(object):
         self.context = context
         self.props = self.obj.vox_empty
 
+    def get_n_voxels(self):
+        return len(self)
+
     def is_selected(self):
         return self.obj.vox_empty.selected
 
     def is_created(self):
         return self.obj.vox_empty.created
+
+    def is_intersected(self):
+        return self.obj.vox_empty.intersected
 
     def select(self):
         self.clear_selected(self.context)
@@ -395,16 +401,27 @@ class VoxelArray(object):
         isect_obj = self.context.scene.objects[isect_obj_name]
         return isect_obj
 
-    def intersect_mesh(self, obj):
-        len_base = len(self)
+    def intersect_mesh(self, obj, progress_callback):
+        n_voxels = len(self)
         i = 0
         for voxel in self.voxels():
             isect_mesh = voxel.get_isect_mesh()
             if isect_mesh is not None:
                 isect_mesh.delete()
             voxel.intersect_mesh(obj)
-            print("Intersecting: {0}/{1}".format(i, len_base))
+            print("Intersecting: {0}/{1}".format(i, n_voxels))
             i += 1
+            progress_callback(int((float(i)/float(n_voxels))*100.0))
+
+        self.obj.vox_empty.intersected = True
+
+    def delete_intersection(self, obj):
+        for voxel in self.voxels():
+            isect_mesh = voxel.get_isect_mesh()
+            if isect_mesh is not None:
+                isect_mesh.delete()
+
+        self.obj.vox_empty.intersected = False
 
     def __getitem__(self, index):
         """overload the "for in" method"""
@@ -435,7 +452,10 @@ class VoxelEmpty_props(bpy.types.PropertyGroup):
         description="Voxel array has been selected for editing",
         default=False)
 
-
+    intersected = BoolProperty(
+        name="VoxelArray Intersected",
+        description="Voxel array has been intersected with object",
+        default=False)
 
 
 class VoxelEmpty_obj_prop(bpy.types.Panel):
@@ -455,7 +475,7 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
     def draw_header(self, context):
         obj = context.object
         if not obj.vox_empty.created:
-            self.layout.operator("object.create_voxels", text="Create")
+            self.layout.operator("voxelarray_create_voxels", text="Create")
 
 
     def draw(self, context):
@@ -465,7 +485,7 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         layout.active = va.is_created()
 
         if(not va.is_selected()):
-            layout.operator("object.set_active_voxelarray", text="Set Active")
+            layout.operator("object.voxelarray_set_active", text="Set Active")
 
         row = layout.row()
         row.label(text="Active object is: " + obj.name)
@@ -484,7 +504,11 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
         #TODO: change this to use a custom property collection for searching
         #and selection of the object.
         row = layout.row()
-        isect_label_text = "Intersect With Object:"
+        isect_label_text = ""
+        if va.is_intersected():
+            isect_label_text = "Re-Intersect With Object:"
+        else:
+            isect_label_text = "Intersect With Object:"
         #print(obj.vox_empty.intersect_obj)
         #row.prop(data=obj.vox_empty, property="intersect_obj")
         isect_obj = va.get_intersect_obj()
@@ -494,9 +518,12 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
             valid_isect_obj = False
 
         if(valid_isect_obj):
-            row.operator("object.intersect_mesh_voxels", text=isect_label_text)
+            row.operator("object.voxelarray_intersect_mesh", text=isect_label_text)
         else:
             row.label(text=isect_label_text)
+
+        if va.is_intersected():
+            row.operator("object.voxelarray_delete_intersection", text="Delete Intersection")
 
         row = layout.row()
         row.prop_search(context.object.vox_empty, "intersect_obj",
@@ -537,8 +564,8 @@ class VoxelMesh_obj_prop(bpy.types.Panel):
         row.prop(obj, "name")
 
 
-class SetActiveVoxelArray(Operator):
-    bl_idname = "object.set_active_voxelarray"
+class VoxelArraySetActiveOp(Operator):
+    bl_idname = "object.voxelarray_set_active"
     bl_label = "Set the active VoxelArray"
     bl_options = {'UNDO'}
 
@@ -552,30 +579,59 @@ class SetActiveVoxelArray(Operator):
     def poll(cls, context):
         return VoxelArray.poll_voxelarray_empty(context.active_object)
 
-class IntersectMeshVoxelsOperator(Operator):
-    """Operator to intersect between mesh object and the voxel array"""
-    bl_idname = "object.intersect_mesh_voxels"
-    bl_label = "Intersect Voxels Mesh"
+class VoxelArrayDeleteIntersectionOp(Operator):
+    bl_idname = "object.voxelarray_delete_intersection"
+    bl_label = "Delete mesh intersection from VoxelArray"
     bl_options = {'UNDO'}
 
     def execute(self, context):
         sb = SelectionBackup(context)
         obj = context.object
         va = VoxelArray(obj, context)
-        isect_obj = va.get_intersect_obj()
-        print("Intersecting:" + isect_obj.name)
-        va.intersect_mesh(isect_obj)
+        va.delete_intersection(obj)
         sb.restore()
         return {'FINISHED'}
 
     @classmethod
     def poll(cls, context):
+        return VoxelArray.poll_voxelarray_empty(context.active_object)
+
+class VoxelArrayIntersectMeshOp(Operator):
+    """Operator to intersect between mesh object and the voxel array"""
+    bl_idname = "object.voxelarray_intersect_mesh"
+    bl_label = "Intersect Voxels Mesh"
+    bl_options = {'UNDO'}
+    _timer = None
+
+    def execute(self, context):
+        wm = bpy.context.window_manager
+        wm.progress_begin(0, 100)
+
+        sb = SelectionBackup(context)
+        obj = context.object
+        va = VoxelArray(obj, context)
+        isect_obj = va.get_intersect_obj()
+        print("Intersecting:" + isect_obj.name)
+        va.intersect_mesh(isect_obj, self.progress_callback)
+        sb.restore()
+
+        wm.progress_end()
+        return {'FINISHED'}
+
+    def progress_callback(self, value):
+        bpy.context.window_manager.progress_update(value)
+
+    @classmethod
+    def poll(cls, context):
         return VoxelArray.poll_voxelarray_empty_created(context.object)
 
-class CreateVoxelsOperator(Operator):
+    def cancel(self, context):
+        return {'CANCELLED'}
+
+class VoxelArrayCreateVoxelsOp(Operator):
     """Operator to create and enable voxels on an empty"""
 
-    bl_idname = "object.create_voxels"
+    bl_idname = "voxelarray_create_voxels"
     bl_label = "Create Voxels"
     bl_options = {'UNDO'}
 
