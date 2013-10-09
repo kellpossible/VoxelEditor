@@ -93,7 +93,45 @@ class VoxelRayIntersection(object):
             self.dist_squared)
 
 
-class Voxel(object):
+class BlenderObject(object):
+    def __init__(self, obj, context):
+        self.obj = obj
+        self.context = context
+
+    def select(self, active=True):
+        """Select the voxel in the blender viewport"""
+
+        self.obj.select = True
+        if active:
+            set_active(self.context, self.obj)
+
+    def deselect(self, active=False):
+        """Deselect the voxel in the blender viewport"""
+        self.obj.select = False
+        if(get_active(self.context) == self.obj):
+            set_active(self.context, None)
+
+    def delete(self):
+        select_none(self.context)
+        self.select()
+        bpy.ops.object.delete()
+
+    def get_local_location(self):
+        return self.obj.location
+
+class BlenderObjectMesh(BlenderObject):
+    def __init__(self, obj, context, creating=False):
+        super(BlenderObjectMesh, self).__init__(obj, context)
+        if creating == True:
+            self.copy_obj_mesh_name()
+
+    def copy_obj_mesh_name(self):
+        self.obj.data.name = self.obj.name
+
+class IntersectionMesh(BlenderObjectMesh):
+    pass
+
+class Voxel(BlenderObjectMesh):
     #Operator Poll Functions
     @classmethod
     def poll_voxel_mesh(cls, obj):
@@ -106,10 +144,6 @@ class Voxel(object):
 
         return False
 
-    def __init__(self, obj, context):
-        self.obj = obj
-        self.context = context
-
     def copy_props(self, dic):
         """copy voxel properties to an external dictionary dic"""
 
@@ -121,6 +155,23 @@ class Voxel(object):
     def gen_set_name(self, vec):
         """Set voxel object name"""
         self.obj.name =  self.gen_get_name(vec)
+        self.copy_obj_mesh_name()
+
+    def delete(self):
+        isect_mesh = self.get_isect_mesh()
+        if isect_mesh is not None:
+            isect_mesh.delete()
+        #TODO, if I have other children types,
+        #could change to just deleting all of children,
+        #and using the BlenderObject delete method to do this.
+        super(Voxel, self).delete()
+
+    def get_isect_mesh(self):
+        for obj in self.obj.children:
+            if obj.type == 'MESH':
+                if "_isect" in obj.name:
+                    return IntersectionMesh(obj, self.context)
+        return None
 
     def ray_cast(self, ray_origin, ray_target):
         """Wrapper for ray casting that moves the ray into object space"""
@@ -158,24 +209,6 @@ class Voxel(object):
                         #if obj_dupli.type == 'MESH':
                             #yield (obj_dupli, dob.matrix.copy())
 
-    def select(self, active=True):
-        """Select the voxel in the blender viewport"""
-
-        self.obj.select = True
-        if active:
-            set_active(self.context, self.obj)
-
-    def deselect(self, active=False):
-        """Deselect the voxel in the blender viewport"""
-        self.obj.select = False
-        if(get_active(self.context) == self.obj):
-            set_active(self.context, None)
-
-    def delete(self):
-        select_none(self.context)
-        self.select()
-        bpy.ops.object.delete()
-
     def intersect_mesh(self, obj):
         """run a boolean intersect operation between a mesh object and the voxel
         and the resultant mesh is parented to the voxel"""
@@ -196,8 +229,8 @@ class Voxel(object):
         isect_obj.location = Vector((0.0, 0.0, 0.0))
         #bpy.ops.object.modifier_add(type='BOOLEAN')
         #select_none(bpy.context)
-        isect_obj.select = True
-        set_active(self.context, isect_obj)
+        isect_mesh = IntersectionMesh(isect_obj, self.context, creating=True)
+        isect_mesh.select()
 
         override = selection_context(isect_obj)
         bpy.ops.object.modifier_add(override, type='BOOLEAN')
@@ -207,9 +240,6 @@ class Voxel(object):
         bool_mod = isect_obj.modifiers[0]
         bool_mod.object = obj
         bpy.ops.object.modifier_apply(override, modifier=bool_mod.name)
-
-    def get_local_location(self):
-        return self.obj.location
 
 class VoxelArray(object):
     """VoxelArray is a utility class to facilitate accessing the sparse voxel
@@ -305,7 +335,7 @@ class VoxelArray(object):
         #TODO: need to add check for replacing existing voxel
         #pos_local = self.obj.matrix_world * pos
         bpy.ops.mesh.primitive_cube_add()
-        vox = Voxel(get_active(self.context), self.context)
+        vox = Voxel(get_active(self.context), self.context, creating=True)
         vox.obj.location = pos
         #vox.obj.scale = self.obj.scale
         #svox.obj.rotation_euler = self.obj.rotation_euler
@@ -359,12 +389,22 @@ class VoxelArray(object):
         if(isect_obj_name == ""):
             return None
 
+        if isect_obj_name not in self.context.scene.objects:
+            return None
+
         isect_obj = self.context.scene.objects[isect_obj_name]
         return isect_obj
 
     def intersect_mesh(self, obj):
+        len_base = len(self)
+        i = 0
         for voxel in self.voxels():
+            isect_mesh = voxel.get_isect_mesh()
+            if isect_mesh is not None:
+                isect_mesh.delete()
             voxel.intersect_mesh(obj)
+            print("Intersecting: {0}/{1}".format(i, len_base))
+            i += 1
 
     def __getitem__(self, index):
         """overload the "for in" method"""
