@@ -186,6 +186,10 @@ class Voxel(BlenderObjectMesh):
     def deselect(self):
         self.obj.select = False
 
+    def select_children(self):
+        for obj in self.obj.children:
+            obj.select=True
+
     def is_selected(self):
         return self.obj.selected
 
@@ -237,15 +241,17 @@ class Voxel(BlenderObjectMesh):
         and the resultant mesh is parented to the voxel"""
         select_none(bpy.context)
         self.select()
-        print("Active:", self.context.active_object)
-        print("Object:", self.context.object)
+        print("Active:", bpy.context.active_object)
+        print("Object:", bpy.context.object)
+        print("self:", self.obj)
 
         bpy.ops.object.duplicate() #duplicate selected object
         #duplicated object is now selected and active
-        print("Active:", self.context.active_object)
-        print("Object:", self.context.object)
+        print("Active:", bpy.context.active_object)
+        print("Object:", bpy.context.object)
 
-        isect_obj = bpy.context.active_object
+        isect_obj = bpy.context.scene.objects[self.obj.name + ".001"]
+        isect_obj.select=True
         bpy.context.scene.objects.active = isect_obj
         isect_obj.name = self.obj.name + "_isect"
         isect_obj.parent = self.obj
@@ -347,6 +353,7 @@ class VoxelArray(object):
     def select_children(self):
         for voxel in self.voxels():
             voxel.select()
+            voxel.select_children()
 
     def select(self):
         self.clear_selected(self.context)
