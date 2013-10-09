@@ -303,6 +303,10 @@ class VoxelArray(object):
         for va in cls.voxelarrays_scene(context):
             va.deselect()
 
+    @classmethod
+    def update_drawtype(cls, obj, context):
+        print("updating drawtype" + str(obj))
+
 
     def __init__(self, obj, context):
         """obj is the object in the context of the caller/creator"""
@@ -457,6 +461,14 @@ class VoxelEmpty_props(bpy.types.PropertyGroup):
         description="Voxel array has been intersected with object",
         default=False)
 
+    voxel_draw_type = EnumProperty(
+        items=[
+        ('voxel_drawtype_solid','SOLID', 'voxels drawn as solid'), 
+        ('voxel_drawtype_wire','WIRE', 'voxels drawn as wireframe')],
+        name="VoxelArray Voxel draw_type",
+        description="Draw type of the voxels in this VoxelArray",
+        #update=VoxelArray.update_drawtype,
+        default='voxel_drawtype_solid')
 
 class VoxelEmpty_obj_prop(bpy.types.Panel):
     """This class is the panel that goes with the empty representing, and storing
@@ -475,7 +487,7 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
     def draw_header(self, context):
         obj = context.object
         if not obj.vox_empty.created:
-            self.layout.operator("voxelarray_create_voxels", text="Create")
+            self.layout.operator("object.voxelarray_create_voxels", text="Create")
 
 
     def draw(self, context):
@@ -496,6 +508,11 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
             row = layout.row()
             nvoxels = len(va)
             row.label(text="Voxels:{0}".format(nvoxels))
+
+        row = layout.row()
+        row.label(text="Draw Type")
+        #p = context.object.vox_empty
+        #row.prop(p, "intersected")
 
 
         # -- VoxelArray -> Mesh intersection ---
@@ -631,7 +648,7 @@ class VoxelArrayIntersectMeshOp(Operator):
 class VoxelArrayCreateVoxelsOp(Operator):
     """Operator to create and enable voxels on an empty"""
 
-    bl_idname = "voxelarray_create_voxels"
+    bl_idname = "object.voxelarray_create_voxels"
     bl_label = "Create Voxels"
     bl_options = {'UNDO'}
 
