@@ -57,13 +57,27 @@ def select_none(context, active=False):
         set_active(context, None)
 
 class SelectionBackup(object):
-    def __init__(self, context):
-        self.context = context
-        self.bases = self.context.selected_bases.copy()
-        self.active = get_active(self.context)
+    """This class is used for creating a backup of the context
+    in the current scene. active_only flag is used to tell it
+    to only pay attention to the active object, and not touch
+    the rest of the selection stuff"""
 
+    def __init__(self, context, active_only=False, append=False):
+        self.append = append
+        self.active_only = active_only
+        self.context = context
+        self.active = get_active(self.context)
+        if not self.active_only:
+            self.bases = self.context.selected_bases.copy()
+        
     def restore(self):
-        select_none(self.context)
+        if self.active_only:
+            set_active(self.context, self.active)
+            return
+
+        if not self.append:
+            select_none(self.context)
+
         for b in self.bases:
             #check that the object still exists
             if(b in self.context.selectable_bases):
@@ -74,10 +88,6 @@ class SelectionBackup(object):
         #print("restoring active")
         set_active(self.context, self.active)
         #print("done restoring active")
-
-
-
-
 
 #Voxel Editor base classes
 class VoxelRayIntersection(object):
@@ -157,6 +167,10 @@ class Voxel(BlenderObjectMesh):
         self.obj.name =  self.gen_get_name(vec)
         self.copy_obj_mesh_name()
 
+    def set_draw_type(self, draw_type):
+        #print("setting " + str(self.obj) + "to drawtype: " + str(draw_type))
+        self.obj.draw_type = draw_type
+
     def delete(self):
         isect_mesh = self.get_isect_mesh()
         if isect_mesh is not None:
@@ -165,6 +179,15 @@ class Voxel(BlenderObjectMesh):
         #could change to just deleting all of children,
         #and using the BlenderObject delete method to do this.
         super(Voxel, self).delete()
+
+    def select(self):
+        self.obj.select = True
+
+    def deselect(self):
+        self.obj.select = False
+
+    def is_selected(self):
+        return self.obj.selected
 
     def get_isect_mesh(self):
         for obj in self.obj.children:
@@ -303,11 +326,6 @@ class VoxelArray(object):
         for va in cls.voxelarrays_scene(context):
             va.deselect()
 
-    @classmethod
-    def update_drawtype(cls, obj, context):
-        print("updating drawtype" + str(obj))
-
-
     def __init__(self, obj, context):
         """obj is the object in the context of the caller/creator"""
         self.obj = obj
@@ -326,12 +344,23 @@ class VoxelArray(object):
     def is_intersected(self):
         return self.obj.vox_empty.intersected
 
+    def select_children(self):
+        for voxel in self.voxels():
+            voxel.select()
+
     def select(self):
         self.clear_selected(self.context)
         self.obj.vox_empty.selected = True
 
     def deselect(self):
         self.obj.vox_empty.selected = False
+
+    def apply_draw_type(self):
+        for voxel in self.voxels():
+            voxel.set_draw_type(self.draw_type())
+
+    def draw_type(self):
+        return self.obj.vox_empty.voxel_draw_type
 
     def global_to_local(self, pos):
         """Convert global position to local position"""
@@ -354,6 +383,7 @@ class VoxelArray(object):
         #print("vox.obj", vox.obj.name)
         vox.obj.parent = self.obj
         vox.gen_set_name(pos)
+        vox.set_draw_type(self.draw_type())
         return vox
 
     def del_vox_pos(self, pos):
@@ -440,6 +470,10 @@ class VoxelArray(object):
     def __len__(self):
         return len(self.obj.children)
 
+def voxelarray_apply_draw_type(drawtype_prop, context):
+    obj = context.object
+    va = VoxelArray(obj, context)
+    va.apply_draw_type()
 
 class VoxelEmpty_props(bpy.types.PropertyGroup):
     """This class stores all the overall properties for the voxel array"""
@@ -463,12 +497,13 @@ class VoxelEmpty_props(bpy.types.PropertyGroup):
 
     voxel_draw_type = EnumProperty(
         items=[
-        ('voxel_drawtype_solid','SOLID', 'voxels drawn as solid'), 
-        ('voxel_drawtype_wire','WIRE', 'voxels drawn as wireframe')],
-        name="VoxelArray Voxel draw_type",
+        ('TEXTURED','TEXTURED', 'voxels drawn with textures'),
+        ('SOLID','SOLID', 'voxels drawn as solid'), 
+        ('WIRE','WIRE', 'voxels drawn as wireframe')],
+        name="Draw Type",
         description="Draw type of the voxels in this VoxelArray",
-        #update=VoxelArray.update_drawtype,
-        default='voxel_drawtype_solid')
+        update=voxelarray_apply_draw_type,
+        default='TEXTURED')
 
 class VoxelEmpty_obj_prop(bpy.types.Panel):
     """This class is the panel that goes with the empty representing, and storing
@@ -510,9 +545,11 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
             row.label(text="Voxels:{0}".format(nvoxels))
 
         row = layout.row()
-        row.label(text="Draw Type")
-        #p = context.object.vox_empty
-        #row.prop(p, "intersected")
+        row.operator('object.voxelarray_select_children', text="Select Children")
+
+        row = layout.row()
+        p = context.object.vox_empty
+        row.prop(p, "voxel_draw_type")
 
 
         # -- VoxelArray -> Mesh intersection ---
@@ -598,7 +635,7 @@ class VoxelArraySetActiveOp(Operator):
 
 class VoxelArrayDeleteIntersectionOp(Operator):
     bl_idname = "object.voxelarray_delete_intersection"
-    bl_label = "Delete mesh intersection from VoxelArray"
+    bl_label = "Delete VoxelArray Intersection"
     bl_options = {'UNDO'}
 
     def execute(self, context):
@@ -606,6 +643,23 @@ class VoxelArrayDeleteIntersectionOp(Operator):
         obj = context.object
         va = VoxelArray(obj, context)
         va.delete_intersection(obj)
+        sb.restore()
+        return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        return VoxelArray.poll_voxelarray_empty(context.active_object)
+
+class VoxelArraySelectChildren(Operator):
+    bl_idname = "object.voxelarray_select_children"
+    bl_label = "Select VoxelArray Children"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        sb = SelectionBackup(context, active_only=True) #only backup active selection
+        obj = context.object
+        va = VoxelArray(obj, context)
+        va.select_children()
         sb.restore()
         return {'FINISHED'}
 
@@ -653,15 +707,14 @@ class VoxelArrayCreateVoxelsOp(Operator):
     bl_options = {'UNDO'}
 
     def execute(self, context):
-        #sb = SelectionBackup(context)
+        sb = SelectionBackup(context, append=True)
         obj = context.object
         obj.vox_empty.created = True
         va = VoxelArray(obj, context)
         va.new_vox(Vector((0, 0, 2)))
         va.select()
         del va
-        #sb.restore()
-        #del sb
+        sb.restore()
         return {'FINISHED'}
 
     @classmethod
