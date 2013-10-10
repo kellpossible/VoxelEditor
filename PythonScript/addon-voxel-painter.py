@@ -272,6 +272,7 @@ class Voxel(BlenderObjectMesh):
         bool_mod = isect_obj.modifiers[0]
         bool_mod.object = obj
         bpy.ops.object.modifier_apply(override, modifier=bool_mod.name)
+        isect_obj.draw_type = "TEXTURED"
 
 class VoxelArray(object):
     """VoxelArray is a utility class to facilitate accessing the sparse voxel
@@ -357,6 +358,16 @@ class VoxelArray(object):
         for voxel in self.voxels():
             voxel.select()
             voxel.select_children()
+
+    def select_children_isect(self):
+        i = 0
+        for voxel in self.voxels():
+            voxel.select_children()
+            if i:
+                #set the first isect mesh as the active object
+                for isect_obj in voxel.obj.children:
+                    set_active(self.context, isect_obj)
+            i+=1
 
     def select(self):
         self.clear_selected(self.context)
@@ -556,6 +567,7 @@ class VoxelEmpty_obj_prop(bpy.types.Panel):
 
         row = layout.row()
         row.operator('object.voxelarray_select_children', text="Select Children")
+        row.operator('object.voxelarray_select_children_isect', text="Select Intersection")
 
         row = layout.row()
         p = context.object.vox_empty
@@ -671,6 +683,22 @@ class VoxelArraySelectChildren(Operator):
         va = VoxelArray(obj, context)
         va.select_children()
         sb.restore()
+        return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        return VoxelArray.poll_voxelarray_empty(context.active_object)
+
+class VoxelArraySelectChildrenIsect(Operator):
+    bl_idname = "object.voxelarray_select_children_isect"
+    bl_label = "Select VoxelArray Intersection"
+    bl_options = {'UNDO'}
+
+    def execute(self, context):
+        obj = context.object
+        va = VoxelArray(obj, context)
+        select_none(context)
+        va.select_children_isect()
         return {'FINISHED'}
 
     @classmethod
