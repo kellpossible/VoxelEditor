@@ -1,8 +1,14 @@
 VoxelEditor
 ===========
 
-This project is a voxel editing python script/addon for blender.
+This project is a voxel editing and intersection python script/addon for blender.
 VoxelEditor is licensed under the MIT license
+
+![Alt text](http://3.bp.blogspot.com/-3nXuVEObOcM/UMtgbfbJXkI/AAAAAAAABPA/_BG9RcdiDnY/s400/Screenshot+from+2012-12-05+19:00:48.png?raw=true)
+
+Check out 
+[kellpossible.blogspot.com](http://kellpossible.blogspot.com.au/) for more info about the purpose and the developement of this software.
+
 
 Using
 ---------
